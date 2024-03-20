@@ -41,6 +41,7 @@ stores that exist around the world.
 
 This regions table contains the region_id and their respective region_name
 value
+
 ![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/843db796-8a37-4f1a-92ad-2f9301d94e5d)
 
 # Table 2: Customer Nodes
