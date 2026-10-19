@@ -1,76 +1,69 @@
-# Introduction
-There is a new innovation in the financial industry called Neo-Banks: new aged
-digital only banks without physical branches.
+# Data Bank – SQL Case Study
 
-Danny thought that there should be some sort of intersection between these
-new age banks, cryptocurrency and the data world…so he decided to launch a
-new initiative - Data Bank!
+SQL analysis of customer balances, transactions and node allocations for a fictional digital bank, used to estimate how much cloud data storage customers will need.
 
-Data Bank runs just like any other digital bank - but it isn’t only for banking
-activities, they also have the world’s most secure distributed data storage
-platform!
+> **Source:** Case Study #4 of Danny Ma's [8 Week SQL Challenge](https://8weeksqlchallenge.com/case-study-4/). The scenario and dataset belong to the challenge. The SQL solutions and analysis in this repo are my own.
 
-Customers are allocated cloud data storage limits which are directly linked to
-how much money they have in their accounts. There are a few interesting
-caveats that go with this business model, and this is where the Data Bank
-team needs your help!
+## Business problem
 
-The management team at Data Bank want to increase their total customer
-base - but also need some help tracking just how much data storage their
-customers will need.
+Data Bank is a digital bank whose customers receive cloud storage limits linked to their account balances. Management wants to:
 
-This case study is all about calculating metrics, growth and helping the
-business analyze their data in a smart way to better forecast and plan for their
-future developments!
+1. Understand how customers are allocated across regions and data nodes
+2. Analyse deposits, withdrawals and purchases over time
+3. Estimate monthly data storage needs under three different allocation rules
 
-# Available Data
+## Data model
 
-The Data Bank team have prepared a data model for this case study as well as
-a few example rows from the complete dataset below to get you familiar with
-their tables.
+Three related tables: `regions`, `customer_nodes` and `customer_transactions` (joined on `region_id` and `customer_id`).
 
 # Entity Relationship Diagram
 ![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/12f35cc2-2bd6-4f63-b372-419700f5b460)
 
-# Table 1: Regions
+## What I did
 
-Just like popular cryptocurrency platforms - Data Bank is also run off a
-network of nodes where both money and data is stored across the globe. In a
-traditional banking sense - you can think of these nodes as bank branches or
-stores that exist around the world.
+**A. Customer node exploration**
+- Counted unique nodes, and customers per region
+- Calculated how often customers are reallocated between nodes (average, median, 80th and 95th percentiles per region)
 
-This regions table contains the region_id and their respective region_name
-value
+**B. Customer transactions**
+- Summarised transaction counts and totals by type
+- Calculated average deposit count and amount per customer
+- Identified customers with multiple deposits plus a purchase or withdrawal in the same month
+- Built month end closing balances for every customer
+- Measured the share of customers whose balance grew by more than 5% month on month
 
-![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/843db796-8a37-4f1a-92ad-2f9301d94e5d)
+**C. Data allocation challenge**
+- Calculated running balances per transaction and min / average / max balance per customer
+- Estimated monthly storage required under:
+  - **Option 1:** based on the previous month's closing balance
+  - **Option 2:** based on the average balance over the previous 30 days
+  - **Option 3:** real-time balance (discussed, as it needs live data rather than static analysis)
 
-# Table 2: Customer Nodes
+## SQL techniques used
 
-Customers are randomly distributed across the nodes according to their
-region - this also specifies exactly which node contains both their cash and
-data.
+`JOIN`s · CTEs · window functions (`LEAD`, `LAG`, `ROW_NUMBER`, running `SUM() OVER`) · date functions · percentile calculations · `CASE` logic · aggregation and grouping
 
-This random distribution changes frequently to reduce the risk of hackers
-getting into Data Bank’s system and stealing customer’s money and data!
-Below is a sample of the top 10 rows of the data_bank.customer_nodes
+## Key findings
 
-![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/6f3eaf20-efb9-40b4-bba5-f92dd86639da)
+- Customers are spread across 5 regions, with [region] holding the most customers ([number]).
+- On average, customers are reallocated to a new node every [number] days.
+- [x]% of customers increased their closing balance by more than 5% in a month.
+- Option [x] required the most storage, peaking in [month] at [amount].
 
-# Table 3: Customer Transactions
+## Next steps / improvements
 
-This table stores all customer deposits, withdrawals and purchases made
-using their Data Bank debit card.
+- Refine the reallocation calculation to measure the gap between consecutive allocations
+- Use `PERCENTILE_CONT` for more robust percentile estimates
+- Visualise monthly storage estimates in Power BI
 
-![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/91c72f5e-d98c-4736-89fc-031087e5bb60)
+## Files
 
-# Interactive SQL Instance
+- `DATA BANK PORTFOLIO.sql`: all queries, organised by section (A, B, C)
 
-Serious SQL students will have access to the same relevant schema SQL and
-example solutions which they can use with their Docker setup from within the
-course player!
+  ![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/6f3eaf20-efb9-40b4-bba5-f92dd86639da)
+  ![image](https://github.com/mubashramunir/Data-Bank/assets/88100648/843db796-8a37-4f1a-92ad-2f9301d94e5d)
 
-# Case Study Questions
-The following case study questions include some general data exploration
-analysis for the nodes and transactions before diving right into the core
-business questions and finishing with a challenging final request!
+
+
+
 
