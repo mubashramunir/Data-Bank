@@ -56,3 +56,92 @@ SELECT region_name,
 FROM ranked
 GROUP BY region_name
 ORDER BY region_name;
+
+-- -------------------------------------------------------------
+-- 5. % of customers whose closing balance grew by more than 5%
+--    in a month (your original query)
+-- -------------------------------------------------------------
+WITH MonthlyClosingBalances AS (
+  SELECT customer_id,
+         EXTRACT(YEAR FROM txn_date) AS year,
+         EXTRACT(MONTH FROM txn_date) AS month,
+         SUM(CASE WHEN txn_type = 'deposit' THEN txn_amount ELSE -txn_amount END)
+           OVER (PARTITION BY customer_id
+                 ORDER BY EXTRACT(YEAR FROM txn_date), EXTRACT(MONTH FROM txn_date)) AS closing_balance
+  FROM customer_transactions
+),
+PercentageChanges AS (
+  SELECT customer_id, year, month, closing_balance,
+         ((closing_balance - LAG(closing_balance) OVER (PARTITION BY customer_id ORDER BY year, month))
+           / LAG(closing_balance) OVER (PARTITION BY customer_id ORDER BY year, month)) * 100 AS percentage_change
+  FROM MonthlyClosingBalances
+),
+CustomersWithIncrease AS (
+  SELECT DISTINCT customer_id
+  FROM PercentageChanges
+  WHERE percentage_change > 5
+)
+SELECT ROUND(COUNT(DISTINCT customer_id) * 100.0
+             / (SELECT COUNT(DISTINCT customer_id) FROM customer_transactions), 1)
+       AS pct_customers_with_increase
+FROM CustomersWithIncrease;
+
+
+-- -------------------------------------------------------------
+-- 6. Option 1: total storage per month, based on month-end balances
+--    (all_balances = straight sum; positive_only = ignores negative balances)
+-- -------------------------------------------------------------
+WITH MonthlyNetChange AS (
+  SELECT customer_id,
+         EXTRACT(YEAR FROM txn_date) AS year,
+         EXTRACT(MONTH FROM txn_date) AS month,
+         SUM(CASE WHEN txn_type = 'deposit' THEN txn_amount ELSE -txn_amount END) AS monthly_net_change
+  FROM customer_transactions
+  GROUP BY customer_id, EXTRACT(YEAR FROM txn_date), EXTRACT(MONTH FROM txn_date)
+),
+MonthEndBalances AS (
+  SELECT customer_id, year, month,
+         SUM(monthly_net_change) OVER (PARTITION BY customer_id ORDER BY year, month) AS month_end_balance
+  FROM MonthlyNetChange
+)
+SELECT year, month,
+       SUM(month_end_balance)               AS all_balances_mb,
+       SUM(GREATEST(month_end_balance, 0))  AS positive_only_mb
+FROM MonthEndBalances
+GROUP BY year, month
+ORDER BY year, month;
+
+
+-- -------------------------------------------------------------
+-- 7. Option 2: total storage per month, based on average balance
+--    over the previous 30 days
+-- -------------------------------------------------------------
+WITH DailyChanges AS (
+  SELECT customer_id, txn_date,
+         SUM(CASE WHEN txn_type = 'deposit' THEN txn_amount ELSE -txn_amount END) AS daily_net_change
+  FROM customer_transactions
+  GROUP BY customer_id, txn_date
+),
+RunningBalances AS (
+  SELECT customer_id, txn_date,
+         SUM(daily_net_change) OVER (PARTITION BY customer_id ORDER BY txn_date) AS running_balance
+  FROM DailyChanges
+),
+EndOfMonthDates AS (
+  SELECT DISTINCT LAST_DAY(txn_date) AS month_end_date
+  FROM RunningBalances
+),
+MonthlyAverages AS (
+  SELECT rb.customer_id, eom.month_end_date,
+         AVG(rb.running_balance) AS avg_monthly_balance
+  FROM RunningBalances rb
+  JOIN EndOfMonthDates eom
+    ON rb.txn_date BETWEEN eom.month_end_date - INTERVAL 29 DAY AND eom.month_end_date
+  GROUP BY rb.customer_id, eom.month_end_date
+)
+SELECT month_end_date,
+       ROUND(SUM(avg_monthly_balance))              AS all_balances_mb,
+       ROUND(SUM(GREATEST(avg_monthly_balance, 0))) AS positive_only_mb
+FROM MonthlyAverages
+GROUP BY month_end_date
+ORDER BY month_end_date;
