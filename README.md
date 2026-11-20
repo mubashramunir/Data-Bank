@@ -4,7 +4,7 @@ SQL analysis of customer balances, transactions and node allocations for a ficti
 
 > **Source:** Case Study #4 of Danny Ma's [8 Week SQL Challenge](https://8weeksqlchallenge.com/case-study-4/). The scenario and dataset belong to the challenge. The SQL solutions and analysis in this repo are my own.
 
-**Tools:** MySQL
+**Tools:** MySQL 8 (MySQL Workbench)
 
 ---
 
@@ -20,11 +20,13 @@ Data Bank is a digital bank whose customers receive cloud storage limits linked 
 
 Three related tables, joined on `region_id` and `customer_id`:
 
-| Table | Description |
-|---|---|
-| `regions` | Region ID and region name |
-| `customer_nodes` | Which node and region each customer is allocated to, with start and end dates for each allocation |
-| `customer_transactions` | Every deposit, withdrawal and purchase, with customer ID, date, type and amount |
+| Table | Rows | Description |
+|---|---|---|
+| `regions` | 5 | Region ID and region name |
+| `customer_nodes` | 3,500 | Which node and region each customer is allocated to, with start and end dates for each allocation |
+| `customer_transactions` | 5,868 | Every deposit, withdrawal and purchase, with customer ID, date, type and amount |
+
+The data covers 500 customers from January to April 2020.
 
 ---
 
@@ -33,7 +35,7 @@ Three related tables, joined on `region_id` and `customer_id`:
 ### A. Customer node exploration
 - Counted nodes and customers per region
 - Measured how long customers stay on a node before being reallocated
-- Calculated the median, 80th and 95th percentile of reallocation days for each region, using `ROW_NUMBER()` and `COUNT() OVER` to rank values within each region
+- Calculated the median, 80th and 95th percentile of days on node for each region, using `PERCENT_RANK()`
 
 ### B. Customer transactions
 - Summarised unique customer counts and total amounts by transaction type
@@ -46,43 +48,66 @@ Three related tables, joined on `region_id` and `customer_id`:
 - Calculated a running balance after every transaction
 - Calculated each customer's minimum, average and maximum running balance
 - Estimated monthly storage needed under three rules (1 unit of balance = 1 MB of storage):
-  - **Option 1:** based on the customer's balance at the end of the previous month
+  - **Option 1:** based on the customer's balance at the end of the month
   - **Option 2:** based on the customer's average balance over the previous 30 days
   - **Option 3:** based on real-time balance. Discussed only, because it needs live data rather than a static dataset
 
 ---
 
+## Data quality issues handled
+
+- **Placeholder end dates.** Each customer's current node allocation has an end date of `9999-12-31`, and 500 rows use it. Left in, these would add about 2.9 million days to each customer's figures, so I excluded them from all reallocation calculations.
+- **Months with no transactions.** Customers who made no transactions in a month would drop out of that month's totals. I built a full customer × month (and customer × day) grid with `CROSS JOIN` and a recursive date calendar, so balances carry forward.
+- **Negative balances.** Many customers' balances go below zero. A customer can't be given negative storage, so storage totals count negative balances as 0 MB. Adding up raw balances instead gives a negative storage total in some months, which isn't a real answer.
+
+---
+
 ## SQL techniques used
 
-`JOIN`s · CTEs · window functions (`LEAD`, `LAG`, `ROW_NUMBER`, running `SUM() OVER`, `COUNT() OVER`) · date functions (`DATEDIFF`, `EXTRACT`, `LAST_DAY`, `INTERVAL`) · manual percentile calculation · `CASE` logic · aggregation and grouping · subqueries
+`JOIN`s · CTEs · window functions (`LEAD`, `LAG`, `ROW_NUMBER`, `PERCENT_RANK`, running `SUM() OVER`) · date functions (`DATEDIFF`, `EXTRACT`, `LAST_DAY`, `INTERVAL`) · recursive CTEs (date calendar) · `CROSS JOIN` · `LEFT JOIN` with `COALESCE` · `CASE` logic · `GREATEST` · aggregation and grouping · subqueries
 
 ---
 
 ## Key findings
 
-**Option 1: storage required based on month-end balances (all customers combined)**
+### Customers and nodes
+- Data Bank has **5 nodes** across **5 regions**. **Australia** has the most customers (110) and **Europe** the fewest (88).
+- On average, customers stay on a node for **14.6 days** before being reallocated.
+- Reallocation patterns are almost the same in every region: median **16 days**, 80th percentile **24–25 days**, 95th percentile **29 days**. This suggests reallocation follows one company-wide rule rather than varying by region.
 
-| Month | Storage required |
-|---|---|
-| January 2020 | 126,091 MB |
-| February 2020 | 34,350 MB |
-| March 2020 | 194,916 MB |
-| April 2020 | 180,855 MB |
+### Customer balances
+- **37%** of customers (185 of 500) increased their month-end balance by more than 5% in at least one month. Growth is only measured when the previous balance was above zero. My first version of this calculation gave 75.8%, because it treated changes between negative balances as growth.
 
-- Demand peaked in **March 2020** at about 195,000 MB, and February was the lowest month at about 34,000 MB. That swing is more than five times.
-- Because month-end balances move this much, Option 1 would mean resizing storage a lot from month to month. Option 2 (30-day average) smooths out short-term spikes and dips, so it would be easier to plan capacity around.
+### Storage required (MB, negative balances counted as 0)
+
+Every customer is counted in every month. Customers who made no transactions in a month keep their previous balance.
+
+| Month | Option 1: month-end balance | Option 2: 30-day average |
+|---|---|---|
+| January 2020 | 235,595 | 128,433 |
+| February 2020 | 261,508 | 244,605 |
+| March 2020 | 260,971 | 257,327 |
+| April 2020 | 264,857 | 256,885 |
+
+📊 **[View the Power BI chart of monthly storage estimates (PDF)](storage_chart.pdf)**
+
+- **Option 1 needs more storage than Option 2 in every month.** From February to April, Option 2 is 1–7% lower, because averaging over 30 days smooths out balance spikes at month end.
+- Option 1 settles at about **261,000–265,000 MB** from February onwards.
+- Option 2 is low in January because the dataset starts on 1 January. Customers have a zero balance before their first transaction, which pulls down the January 30-day average. This is a start-of-data effect, not a real difference in demand.
+- **Carrying balances forward mattered.** My first version left out customers with no transactions in a month, which made April look like a 35% drop in demand (157,033 MB). With every customer counted, April is actually the highest month for Option 1.
 
 ---
 
 ## Next steps / improvements
 
-- Exclude the placeholder end date `9999-12-31` (used for customers' current node) from the reallocation calculations, so it doesn't distort the averages and percentiles
-- Calculate the total storage required per month for Option 2 so it can be compared directly with Option 1
-- Analyse without changing the source tables (currently a `reallocation_days` column is added with `ALTER TABLE`). Use a CTE instead
-- Visualise the monthly storage estimates for each option in Power BI
+- Extend the analysis with a longer time period, so storage trends can be checked beyond four months
+- Model Option 3 (real-time balance) using the daily balances already built for Option 2, taking the maximum daily balance per month as the storage needed
 
 ---
 
 ## Files
 
-- `DATA BANK PORTFOLIO.sql`: all queries, organised by section (A, B, C)
+- `DATA BANK PORTFOLIO.sql`: all case study queries, organised by section (A, B, C)
+- `data_bank_results.sql`: corrected queries for nodes, regions and percentiles
+- `data_bank_improvements.sql`: improved storage estimates (Options 1 and 2) and the 5% growth calculation
+- `storage_chart.pdf`: Power BI chart of the monthly storage estimates
